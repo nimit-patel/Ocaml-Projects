@@ -15,9 +15,16 @@ ocamlc str.cma -o rpn rpn.ml
 ocamlrun rpn
 ```  
 
+To stop the program
+
+```
+ctrl + z
+```
+
 ### Example input/ouput
 
 ```
 1 2 +
 3.
 ```
+
