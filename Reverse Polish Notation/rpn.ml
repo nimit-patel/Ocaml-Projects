@@ -8,13 +8,18 @@ let calc stack op : result =
   try
     let second = Stack.pop stack in
     let first  = Stack.pop stack in
+    Stack.push (op first second) stack;
     Num (op first second)
   with
-    | Stack.Empty      -> Error "Invalid RPN Expression!"
-    | Division_by_zero -> Error "Division by zero!"
+    | Stack.Empty      -> Error "Invalid RPN Expression, Stack is empty!"
     | _                -> Error "Something went wrong!"
   ;;
 
+let get_float_value token stack : result = 
+  let float_value = float_of_string(token) in
+  Stack.push float_value stack;
+  Num float_value
+  ;;
 
 let parse_token token stack : result =
   match token with
@@ -23,7 +28,7 @@ let parse_token token stack : result =
   | "+" -> calc stack ( +. )
   | "-" -> calc stack ( -. )
   | "^" -> calc stack ( ** )
-  |  _  -> Num ( float_of_string(token) )
+  |  _  -> get_float_value token stack
   ;;
 
 let get_result result : string =
@@ -32,13 +37,20 @@ let get_result result : string =
   | Error error -> error
   ;;
 
-let rec eval tokens stack =
+let is_float value : bool= 
+  match value with
+  | Num num -> true
+  | Error error -> false
+  ;;
+
+let rec eval tokens stack : result=
   match tokens with 
-  | []       -> print_string (get_result (Stack.pop stack;))
-  | hd :: tl -> let val = parse_token hd in
-                Stack.push val stack;
-                match val with
-                | Num num -> eval tl stack
+  | []       -> if (Stack.length stack) = 1 then Num (Stack.pop stack) 
+                else Error "Invalid RPN expression!"
+  | hd :: tl -> let value = (parse_token hd stack) in
+                let is_type_float = is_float value in
+                if is_type_float then eval tl stack 
+                else value
   ;;
 
 
@@ -48,7 +60,10 @@ let rpn (expression) =
   let tokens = Str.split regex expression in
   (* Create a new stack *)
   let stack = Stack.create () in
-  eval tokens stack;
+  let result = (eval tokens stack) in
+  match result with
+  | Num num -> print_float num; print_newline ();
+  | Error error -> print_string error; print_newline ();
   ;;
   
 (* read lines of input *)
