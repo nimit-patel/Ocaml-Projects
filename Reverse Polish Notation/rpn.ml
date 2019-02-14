@@ -25,10 +25,6 @@ let parse token stack =
   |  _  -> Stack.push ( float_of_string(token) ) stack
   ;;
 
-  // token to evaluate --> result
-  // tokens
-
-  
 let rpn (expression) = 
 
   (* Get a list of tokens for an expression *)
