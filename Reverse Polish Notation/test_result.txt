@@ -1,9 +1,14 @@
 3.
-8.
+625
+17.
+24.
 68.
 5.
 1.
 2.6896
+0.9
+275854.735352
+1.18198757764
 Invalid RPN expression: not enough operators!
-Error: a cannot be converted to a float
+Error: 'a' cannot be converted to a float
 Invalid RPN Expression: not enough operands!
