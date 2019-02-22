@@ -4,20 +4,11 @@ type result =                                   (* Sum type either float or stri
   ;;
 
 let calc stack op : result =
-  try
-    Num (op (Stack.pop stack) (Stack.pop stack)) (* Evaluate expression by popping two values from stack.
-                                                    The second pop operation is done first so, evaluation 
-                                                    is first <op> second *)
-  with
-    | Stack.Empty      -> Error "Invalid RPN Expression: not enough operands!" 
-    | _                -> Error "Something went wrong!"
-  ;;
-
-let get_float_value token stack : result = 
-  try 
-    Num ( float_of_string(token) )
-  with
-    | _                 -> Error ("Error: \'" ^ token ^ "\' cannot be converted to a float")
+  if Stack.length stack > 1
+  then Num   (op (Stack.pop stack) (Stack.pop stack)) (* Evaluate expression by popping two values from stack.
+                                                      The second pop operation is done first so, evaluation 
+                                                      is first <op> second *)
+  else Error ("Invalid RPN Expression: not enough operands!") 
   ;;
 
 let parse_token token stack : result =
@@ -27,14 +18,17 @@ let parse_token token stack : result =
   | "+" -> calc stack ( +. )
   | "-" -> calc stack ( -. )
   | "^" -> calc stack ( ** )
-  |  _  -> get_float_value token stack
+  |  _  -> let float_val = float_of_string_opt(token) in
+           match float_val with 
+           | Some(flt)    -> Num   (flt)
+           | None         -> Error ("Error: \'" ^ token ^ "\' cannot be converted to a float")
   ;;
 
 let rec eval tokens stack : result=
   match tokens with 
   | []         -> if          (Stack.length stack) = 1    (* Exactly one value should be on stack after evaluating rpn *)
                   then Num    (Stack.pop stack) 
-                  else Error  "Invalid RPN expression: not enough operators!"
+                  else Error  ("Invalid RPN expression: not enough operators!")
   | curr::rest -> let result = (parse_token curr stack) in
                   match result with
                   | Num num -> Stack.push num stack; eval rest stack
