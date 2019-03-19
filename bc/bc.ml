@@ -1,5 +1,5 @@
-open Core
-module Scope = Caml.Map.Make(String)
+open Core.Std ;;
+module Scope = Caml.Map.Make(String) ;;
 
 type sExpr = 
     | Atom of string
@@ -48,7 +48,7 @@ let getValue (var: string) (scope : envQueue) :float =
                     match value with
                     | Some(flt)     -> flt
                     | None          -> 0.0
-    | _         ->  0.0
+    | _        -> 0.0
     ;;
 
 let rec evalExpr (_e: expr) (_q:envQueue) :float  =
@@ -149,7 +149,6 @@ let%expect_test "p1" =
         else
             return (f(x-1)+f(x-2))
     }
-
     f(3)
     f(5)
  *)
