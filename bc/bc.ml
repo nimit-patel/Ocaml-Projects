@@ -1,10 +1,10 @@
 open Core
-
-module Scope = Map.Make(String)
+module Scope = Caml.Map.Make(String)
 
 type sExpr = 
     | Atom of string
     | List of sExpr list
+    ;;
 
 type expr = 
     | Num of float
@@ -12,6 +12,7 @@ type expr =
     | Op1 of string*expr
     | Op2 of string*expr*expr
     | Fct of string* expr list
+    ;;
 
 type statement = 
     | Assign of string*expr
@@ -21,12 +22,14 @@ type statement =
     | While of expr*statement list
     | For of statement*expr*statement*statement list
     | FctDef of string * string list * statement list 
+    ;;
 
-type block = statement list 
+type block = statement list ;;
 
-type env = Scope
 
-type envQueue = env list
+type env = float Scope.t;;
+
+type envQueue = env list ;;
 
 let varEval (_v: string) (_q:envQueue): float  = 0.0  
 
@@ -39,15 +42,16 @@ let evalOp (op: string) (left: float) (right: float) : float =
     | "^" -> left ** right
     | _   -> 0.0
 
-let getValue (var: string) (scope: envQueue): float = 
+let getValue (var: string) (scope : envQueue) :float = 
     match scope with 
-    | hd::tail  ->  let value = Scope.find var hd in
-                    match value with 
-                    | Some(flt)      -> flt
-                    | _              -> 0.0
+    | hd::tail  ->  let value = Scope.find_opt var hd in
+                    match value with
+                    | Some(flt)     -> flt
+                    | None          -> 0.0
     | _         ->  0.0
+    ;;
 
-let rec evalExpr (_e: expr) (_q:envQueue): float  =
+let rec evalExpr (_e: expr) (_q:envQueue) :float  =
     match _e with
     | Num(num)              -> num
     | Var(variable)         -> getValue variable _q
@@ -67,10 +71,10 @@ let%expect_test "evalNum" =
 
 (* Test for variable *)
 let%expect_test "evalVar" = 
-    let t1 = Var("v") in
+    let var = Var("v") in
     let scope = Scope.empty in
-    let scope = Scope.add "v" 1.0 scope in
-    evalExpr t1 [scope] |>
+    let m = Scope.add "v" 1.0 scope in
+    evalExpr var [m] |>
     printf "%F";
     [%expect {| 1. |}]
 
