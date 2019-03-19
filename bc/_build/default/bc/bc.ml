@@ -31,59 +31,32 @@ type env = float Scope.t ;;
 
 type envQueue = env Stack.t;;
 
+(*
 let varScopes = Stack.create ;;
-let globalScope = Scope.empty ;;
+let globalScope = Stack.create ;;
+*)
 
-let getGlobalValue (var: string) : float =
-    let value = Scope.find_opt var globalScope in
+(* Gets value from the global scope *)
+let rec getGlobalValue (var: string) (scopes :envQueue): float =
     
-    match value with
-    | Some(flt)     -> flt
-    | None          -> 0.0
-
-    (*
-    let len = List.length scopes in
-    let tail = List.nth_opt scopes (len - 1) in
-    
-    match tail with 
-    | Some env  -> let value = Scope.find_opt var env in
-                    match value with
-                    | Some(flt)     -> flt
-                    | None          -> 0.0
-    | None      -> 0.0
-    *)
+    if Stack.length scopes == 1 then 
+        let globalScope = Stack.top scopes in
+        let value = Scope.find_opt var globalScope in
+        match value with
+        | Some(flt)     -> flt
+        | None          -> 0.0
+    else
+        let scope = Stack.pop scopes in
+        getGlobalValue var scopes
     ;;
 
 let varEval (var: string) (scopes :envQueue): float  = 
-
     let topScope = Stack.top scopes in
     let value = Scope.find_opt var topScope in
 
     match value with
     | Some(flt)     -> flt
-    | None          -> getGlobalValue var
-  
-    (*
-    let len = List.length scopes in
-    
-    if len > 1 then
-    let topScope = List.hd scopes in
-    let value = Scope.find_opt var topScope in
-    match value with
-    | Some(flt)     -> flt
-    | None          -> getGlobalValue var scopes
-    else
-    getGlobalValue var scopes
-    *)
-
-    (*
-    match scopes with 
-    | hd::tail  ->  let value = Scope.find_opt var hd in
-                    match value with
-                    | Some(flt)     -> flt
-                    | None          -> 0.0
-    | _        -> 0.0
-    *)
+    | None          -> getGlobalValue var (Stack.copy scopes)
     ;;
 
 let evalOp (op: string) (left: float) (right: float) : float =
@@ -119,16 +92,16 @@ let%expect_test "evalNum" =
 
 (* Test for variable *)
 let%expect_test "evalVar" = 
-    let var = Var("v") in
+    let var = Var("r") in
     let scope = Scope.empty in
-    
+    let global = Scope.empty in
     let testScopes = Stack.create () in
-    Stack.push scope testScopes;
 
-   (* globalScope := m;*)
-   (*
-    let m = Scope.add "v" 1.0 scope in 
-    let testScope = [m] in*)
+    let scope = Scope.add "i" 24.0 scope in
+    let global = Scope.add "r" 23.0 global in
+    
+    Stack.push global testScopes;
+    Stack.push scope testScopes;
 
     evalExpr var testScopes |>
     printf "%F";
