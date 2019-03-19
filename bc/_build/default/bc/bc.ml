@@ -31,6 +31,8 @@ type env = float Scope.t ;;
 
 type envQueue = env Stack.t;;
 
+let globalStack = Stack.create () ;;
+
 (* Gets value from the global scope *)
 
 let rec getGlobalScope (scopes :envQueue) : env = 
@@ -43,11 +45,15 @@ let rec getGlobalScope (scopes :envQueue) : env =
     ;;
     
 let rec getGlobalValue (var: string) (scopes :envQueue): float =
-    let globalScope = getGlobalScope scopes in
-    let value = Scope.find_opt var globalScope in
-    match value with
-    | Some(flt)     -> flt
-    | None          -> 0.0
+    if(Stack.is_empty globalStack) then
+        0.0
+    else begin
+        let globalScope = Stack.top globalStack in
+        let value = Scope.find_opt var globalScope in
+        match value with
+        | Some(flt)     -> flt
+        | None          -> 0.0
+    end
     ;;
 
 let varEval (var: string) (scopes :envQueue): float  = 
@@ -60,9 +66,16 @@ let varEval (var: string) (scopes :envQueue): float  =
     ;;
 
 
+(*
 let assignVar (var: string) (value : float) (scopes :envQueue): unit = 
+    let localScope = Stack.top scopes in
+    let globalScope = getGlobalScope scopes in
+
+    if(Scope.exists var localScope) then
+        
         print_endline "Not implemented"
     ;;
+*)
 
 let evalOp (op: string)  (left: float) (right: float) : float =
     match op with
@@ -127,7 +140,7 @@ let%expect_test "evalVar" =
     let global = Scope.add "r" 23.0 global in
     
     Stack.push global testScopes;
-    Stack.push scope testScopes;
+    Stack.push scope globalStack;
 
     evalExpr var testScopes |>
     printf "%F";
