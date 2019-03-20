@@ -142,6 +142,9 @@ let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
         | Assign(var, expr) ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
                                 scopes
+        | Expr(expr)        -> let result = evalExpr expr scopes in
+                                result |> printf "%F\n";
+                                scopes
         | If(exp, codeT, codeF) -> 
             let cond = evalExpr exp scopes in
                 if(cond > 0.0) then 
@@ -150,13 +153,13 @@ let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
                     evalCode codeF scopes
             ;
             scopes
-        | While(exp, stat_list)  -> while (evalExpr exp scopes) = 1.0 do
-                                        evalCode stat_list scopes 
-                                    done;
-                                    scopes
-        | Expr(expr)          -> let result = evalExpr expr scopes in
-                                 result |> printf "%F\n";
-                                 scopes
+        | While(cond, stat_list)      -> while (evalExpr cond scopes) = 1.0 do
+                                            evalCode stat_list scopes 
+                                         done;
+                                         scopes
+        | For(init, cond, update, stat_list) -> let tmp = evalStatement init scopes in
+                                                evalForLoop cond update stat_list scopes;
+                                                scopes
         | _ -> scopes (*ignore *)
 
 and evalCode (stat_list: block) (scopes :envQueue): unit = 
@@ -167,6 +170,15 @@ and evalCode (stat_list: block) (scopes :envQueue): unit =
     | hd::tl        -> let s = evalStatement hd scopes in
                        evalCode tl scopes
     | _             -> ()
+
+and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (scopes: envQueue): unit = 
+    if (evalExpr cond scopes) <> 1.0 then
+       ()
+    else begin
+        evalCode stat_list scopes;
+        let tmp = evalStatement update scopes in
+        evalForLoop cond update stat_list scopes
+    end
     ;;
 
 (* Test for expression *)
@@ -286,22 +298,20 @@ let p2: block = [
         [For(
             Assign("i", Num(2.0)),
             Op2("<", Var("i"), Num(10.0)),
-            Expr(Op1("++a", Var("i"))),
+            Assign("i",(Op2("+", Var("i"), Num(1.0)))),
             [
                 Assign("v", Op2("*", Var("v"), Var("i")))
             ]
-        )]
+        )];
     );
     Expr(Var("v"))
 ];;
 
-(*
-let%expect_test "p1" =
-    evalCode p2 []; 
-    [%expect {| 3628800. |}]
-    ;;
 
-    *)
+let%expect_test "p1" =
+    evalCode p2 localStack; 
+    [%expect {| 362880. |}]
+    ;;
 
 (*  Fibbonaci sequence
     define f(x) {
