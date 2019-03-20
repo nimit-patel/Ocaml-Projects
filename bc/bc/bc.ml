@@ -171,9 +171,6 @@ and evalStatement (s: statement) (scopes :envQueue): envQueue =
         | _ -> scopes (*ignore *)
         ;
 and evalCode (stat_list: block) (scopes :envQueue): unit = 
-    (* crate new environment *)
-    (* user fold_left  *)
-    (* pop the local environment *)
     match stat_list with
     | hd::tl        -> let s = evalStatement hd scopes in
                        evalCode tl scopes
@@ -201,16 +198,18 @@ and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
     if (Scope.mem key !funcMap) then 
         let impl = Scope.find key !funcMap in
         let params = Scope.find key !paramMap in  
-        Stack.push Scope.empty scopes;
+        Stack.push Scope.empty scopes;  (* add new function scope *)
 
-        for i = 0 to paramCount do
+        for i = 0 to (paramCount - 1) do
             let var = List.nth params i in
             let value = evalExpr (List.nth args i) scopes in 
             let funcScope = Stack.pop scopes in
+            let funcScope = Scope.add var value funcScope in
             Stack.push funcScope scopes;
         done;
 
         evalCode impl scopes;
+        let funcScope = Stack.pop scopes in (* remove function scope *)
         0.0
     else
         0.0
@@ -350,6 +349,34 @@ let p2: block = [
 let%expect_test "p1" =
     evalCode p2 localStack; 
     [%expect {| 362880. |}]
+    ;;
+
+
+(* 
+Function TEST 1
+    f(x){
+        ++x
+    }
+    x 
+*)
+
+let foo: block = 
+    [
+        FctDef("foo", ["x"], [
+            Expr(Op1("++", Var("x")))
+        ]);
+        Expr(Fct("foo", [Num(3.0)]));
+        Expr(Var("x"));
+    ]
+    ;;
+
+let%expect_test "foo" = 
+    evalCode foo localStack;
+    [%expect {| 
+    4.
+    0.
+    0.
+    |}]
     ;;
 
 (*  Fibbonaci sequence
