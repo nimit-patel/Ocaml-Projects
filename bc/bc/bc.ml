@@ -34,36 +34,21 @@ type envQueue = env Stack.t;;
 let globalStack = Stack.create () ;;
 let localStack = Stack.create () ;;
 
-(* Gets value from the global scope *)
-
-let rec getGlobalScope (scopes :envQueue) : env = 
-    if (Stack.length scopes) == 1 then 
-        Stack.pop scopes
-    else begin
-            let top = Stack.pop scopes in
-            getGlobalScope scopes
-    end
-    ;;
-    
-let rec getGlobalValue (var: string) (scopes :envQueue): float =
-    if(Stack.is_empty globalStack) then
-        0.0
-    else begin
-        let globalScope = Stack.top globalStack in
-        let value = Scope.find_opt var globalScope in
-        match value with
-        | Some(flt)     -> flt
-        | None          -> 0.0
-    end
+(* Gets value from the global scope *)    
+let rec getGlobalValue (var: string) : float =
+    let globalScope = Stack.top globalStack in
+    let value = Scope.find_opt var globalScope in
+    match value with
+    | Some(flt)     -> flt
+    | None          -> 0.0
     ;;
 
 let varEval (var: string) (scopes :envQueue): float  = 
     let topScope = Stack.top scopes in
     let value = Scope.find_opt var topScope in
-
     match value with
     | Some(flt)     -> flt
-    | None          -> getGlobalValue var (Stack.copy scopes)
+    | None          -> getGlobalValue var
     ;;
 
 
@@ -83,6 +68,35 @@ let assignVar (var: string) (value : float) (scopes :envQueue): unit =
     end
     ;;
 
+let evalPre (addVal : float) (exp : expr) (scopes :envQueue) : float =
+    match exp with
+        | Var(var)  -> let value = varEval var scopes in 
+                       let value = value +. addVal in
+                       assignVar var value scopes;
+                       value
+        | _         -> 0.0 (* TO DO throw error *)
+    ;;
+
+
+
+let evalRel (op: string)  (left: float) (right: float) : float =
+    let diff = left -. right in
+
+    match op with
+    | ">"    -> if diff > 0.0 then 1.0 else 0.0
+    | "<"    -> if diff < 0.0 then 1.0 else 0.0
+    | ">="   -> if diff >= 0.0 then 1.0 else 0.0
+    | "<="   -> if diff <= 0.0 then 1.0 else 0.0
+    | "=="   -> if diff == 0.0 then 1.0 else 0.0
+    | "!="   -> if diff != 0.0 then 1.0 else 0.0
+    ;;
+
+let evalLogical (op: string)  (left: float) (right: float) : float =
+    match op with
+    | "&&" -> if (left != 0.0) && (right != 0.0) then 1.0 else 0.0
+    | "||" -> if (left != 0.0) || (right != 0.0) then 1.0 else 0.0
+    ;;
+
 let evalOp (op: string)  (left: float) (right: float) : float =
     match op with
     | "*" -> left *. right
@@ -90,20 +104,34 @@ let evalOp (op: string)  (left: float) (right: float) : float =
     | "+" -> left +. right
     | "-" -> left -. right
     | "^" -> left ** right
+    | ">" | "<" | ">=" | "<=" | "==" | "!=" -> evalRel op left right
+    | "&&" | "||" -> evalLogical op left right
     | _   -> 0.0
     ;;
+
+
 
 let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
     match exp with
     | Num(num)              -> num
     | Var(variable)         -> varEval variable scopes
+    | Op1(op, e1)           -> evalUnary op e1 scopes
     | Op2(op, e1, e2)       -> let left = evalExpr e1 scopes in
                                let right = evalExpr e2 scopes in
                                evalOp op left right
     
     | _                     -> 0.0
-    ;;
 
+and evalUnary (op : string) (exp : expr) (scopes :envQueue) : float = 
+match op with
+    | "++"  -> evalPre 1.0 exp scopes
+    | "--"  -> evalPre (0.0 -. 1.0) exp scopes
+    | "!" -> let value = evalExpr exp scopes in
+             if value == 0.0 then 1.0 else 0.0
+    | "-" -> let value = evalExpr exp scopes in
+             value *. -1.0
+    | _   -> 0.0  (* To do throw error *)
+    ;;
 
 
 let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
@@ -134,46 +162,46 @@ and evalCode (stat_list: block) (scopes :envQueue): unit =
     | _             -> ()
     ;;
 
-(* Test for expression
+(* Test for expression *)
 let%expect_test "evalNum" = 
-    let t1 = Op2("^", (Num 20.0), (Num 20.0)) in
-    evalExpr t1 [] |>
+    let t1 = Op2("+", Op2("-", (Num 20.0), (Num 20.0)), (Num 4.0))  in
+    Stack.push Scope.empty localStack;
+    evalExpr t1  localStack |>
     printf "%F";
-    [%expect {| 40. |}]
+    [%expect {| 4. |}]
     ;;
-     *)
 
 (* Test for variable *)
 let%expect_test "evalVar" = 
     let var = Var("i") in
     let scope = Scope.empty in
     let global = Scope.empty in
-    let testScopes = Stack.create () in
 
     let scope = Scope.add "i" 24.0 scope in
     let global = Scope.add "r" 23.0 global in
     
-    Stack.push global testScopes;
-    Stack.push scope globalStack;
+    Stack.push scope localStack;
+    Stack.push global globalStack;
 
-    evalExpr var testScopes |>
+    evalExpr var localStack |>
     printf "%F";
-    [%expect {| 1. |}]
+    [%expect {| 24. |}]
 
 (* 
     v = 10; 
     v // display v
  *)
 let p1: block = [
-        Assign("v", Num(1.0));
+        Assign("v", Num(4.0));
         Expr(Var("v")) 
 ];;
 
 
 let%expect_test "p1" =
     Stack.push Scope.empty localStack;
+    Stack.push Scope.empty globalStack;
     evalCode p1 localStack; 
-    [%expect {| 0. |}]
+    [%expect {| 4. |}]
     ;;
 
 (*
