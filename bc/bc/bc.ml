@@ -22,7 +22,7 @@ type expr =
     | Var of string
     | Op1 of string*expr
     | Op2 of string*expr*expr
-    | Fct of string* expr list
+    | Fct of string*expr list
     ;;
 
 type statement = 
@@ -121,8 +121,6 @@ let evalOp (op: string)  (left: float) (right: float) : float =
     | _   -> 0.0
     ;;
 
-
-
 let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
     match exp with
     | Num(num)              -> num
@@ -131,9 +129,9 @@ let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
     | Op2(op, e1, e2)       -> let left = evalExpr e1 scopes in
                                let right = evalExpr e2 scopes in
                                evalOp op left right
-    
+    | Fct(name, expr_list)  -> evalFunc name expr_list scopes
     | _                     -> 0.0
-
+    ;
 and evalUnary (op : string) (exp : expr) (scopes :envQueue) : float = 
 match op with
     | "++"  -> evalPre 1.0 exp scopes
@@ -143,9 +141,9 @@ match op with
     | "-" -> let value = evalExpr exp scopes in
              value *. -1.0
     | _   -> 0.0  (* To do throw error *)
-    ;;
+    ;
 
-let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
+and evalStatement (s: statement) (scopes :envQueue): envQueue =
     match s with 
         | Assign(var, expr) ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
@@ -190,23 +188,32 @@ and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (s
         evalForLoop cond update stat_list scopes
     end
     ;
-and putFuncDef (name : string) (params : string list) (stat_list : statement list) : unit =
-    (*
-    let funcMap = Stack.pop funcStack in
+and putFuncDef (name : string) (params : string list) (stat_list : statement list) : unit = 
     let key = string_of_int (List.length params) ^ name in
-    let impl = Scope.find_opt key funcMap in
+    funcMap := Scope.add key stat_list !funcMap;
+    paramMap := Scope.add key params !paramMap;
+    ;
+and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
+    (* determine if the function exist *)
+    let paramCount = (List.length args) in
+    let key =  string_of_int paramCount ^ name in
     
-    (*
-    let params = Param.find_opt key !paramMap in
-    *)
+    if (Scope.mem key !funcMap) then 
+        let impl = Scope.find key !funcMap in
+        let params = Scope.find key !paramMap in  
+        Stack.push Scope.empty scopes;
 
-    match impl with
-    | list  -> let funcMap = Scope.add key stat_list funcMap in
-               Stack.push funcMap funcStack
-    | None  -> ()
-    
-    *)
-    ()
+        for i = 0 to paramCount do
+            let var = List.nth params i in
+            let value = evalExpr (List.nth args i) scopes in 
+            let funcScope = Stack.pop scopes in
+            Stack.push funcScope scopes;
+        done;
+
+        evalCode impl scopes;
+        0.0
+    else
+        0.0
     ;;
 
 (* Test for expression *)
@@ -231,9 +238,8 @@ let%expect_test "evalVar" =
 
     let cl:block = [Return(Num(0.0))] in
     let sl = [""] in
-    
-    
     funcMap := Scope.add "" cl !funcMap;
+
     evalExpr var localStack |>
     printf "%F";
     [%expect {| 24. |}]
