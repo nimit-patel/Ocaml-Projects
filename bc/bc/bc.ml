@@ -36,6 +36,7 @@ let localStack = Stack.create () ;;
 Stack.push Scope.empty localStack ;;
 Stack.push Scope.empty globalStack ;;
 
+(* Puts value into the appropriate scope *)
 let assignVar (var: string) (value : float) (scopes :envQueue): unit = 
     let localScope = Stack.pop scopes in
     let globalScope = Stack.pop globalStack in
@@ -56,20 +57,22 @@ let assignVar (var: string) (value : float) (scopes :envQueue): unit =
     ;;
 
 (* Gets value from the global scope *)    
-let rec getGlobalValue (var: string) : float =
+let rec getGlobalValue (var: string) (scopes :envQueue) : float =
     let globalScope = Stack.top globalStack in
     let value = Scope.find_opt var globalScope in
     match value with
     | Some(flt)     -> flt
-    | None          -> 0.0
+    | None          -> assignVar var 0.0 scopes; (* puts default value 0 for this new variable *)
+                       0.0
     ;;
 
+(* Gets value from the local scope *)
 let varEval (var: string) (scopes :envQueue): float  = 
     let topScope = Stack.top scopes in
     let value = Scope.find_opt var topScope in
     match value with
     | Some(flt)     -> flt
-    | None          -> getGlobalValue var
+    | None          -> getGlobalValue var scopes
     ;;
 
 let evalPre (addVal : float) (exp : expr) (scopes :envQueue) : float =
@@ -136,7 +139,7 @@ match op with
 
 let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
     match s with 
-        | Assign(var, expr)  ->  let value = evalExpr expr scopes in
+        | Assign(var, expr) ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
                                 scopes
         | If(exp, codeT, codeF) -> 
@@ -147,6 +150,10 @@ let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
                     evalCode codeF scopes
             ;
             scopes
+        | While(exp, stat_list)  -> while (evalExpr exp scopes) = 1.0 do
+                                        evalCode stat_list scopes 
+                                    done;
+                                    scopes
         | Expr(expr)          -> let result = evalExpr expr scopes in
                                  result |> printf "%F\n";
                                  scopes
@@ -239,6 +246,28 @@ let%expect_test "ifelse" =
               |}]
     ;;
 
+let while_test: block = [
+    While(
+        Op2("<", Var("k"), Num(10.0)),
+        [Expr(Op1("++", Var("k")))]
+    );
+];;
+
+let%expect_test "while_test" =
+evalCode while_test localStack; 
+[%expect {| 
+            1.
+            2.
+            3.
+            4.
+            5.
+            6.
+            7.
+            8.
+            9.
+            10.
+            |}]
+;;
 (*
     v = 1.0;
     if (v>10.0) then
