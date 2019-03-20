@@ -32,28 +32,15 @@ type env = float Scope.t ;;
 type envQueue = env Stack.t;;
 
 let globalStack = Stack.create () ;;
+let localStack = Stack.create () ;;
 
-(* Gets value from the global scope *)
-
-let rec getGlobalScope (scopes :envQueue) : env = 
-    if (Stack.length scopes) == 1 then 
-        Stack.pop scopes
-    else begin
-            let top = Stack.pop scopes in
-            getGlobalScope scopes
-    end
-    ;;
-    
-let rec getGlobalValue (var: string) (scopes :envQueue): float =
-    if(Stack.is_empty globalStack) then
-        0.0
-    else begin
-        let globalScope = Stack.top globalStack in
-        let value = Scope.find_opt var globalScope in
-        match value with
-        | Some(flt)     -> flt
-        | None          -> 0.0
-    end
+(* Gets value from the global scope *)    
+let rec getGlobalValue (var: string) : float =
+    let globalScope = Stack.top globalStack in
+    let value = Scope.find_opt var globalScope in
+    match value with
+    | Some(flt)     -> flt
+    | None          -> 0.0
     ;;
 
 let varEval (var: string) (scopes :envQueue): float  = 
@@ -62,20 +49,25 @@ let varEval (var: string) (scopes :envQueue): float  =
 
     match value with
     | Some(flt)     -> flt
-    | None          -> getGlobalValue var (Stack.copy scopes)
+    | None          -> getGlobalValue var
     ;;
 
 
-(*
 let assignVar (var: string) (value : float) (scopes :envQueue): unit = 
-    let localScope = Stack.top scopes in
-    let globalScope = getGlobalScope scopes in
+    let localScope = Stack.pop scopes in
+    let globalScope = Stack.pop globalStack in
 
-    if(Scope.exists var localScope) then
-        
-        print_endline "Not implemented"
+    if(Scope.mem var localScope) then
+        let localScope = Scope.add var value localScope in
+        Stack.push localScope scopes
+    else if(Scope.mem var globalScope) then
+        let globalScope =  Scope.add var value globalScope in
+        Stack.push globalScope globalStack
+    else begin
+        let localScope = Scope.add var value localScope in
+        Stack.push localScope scopes
+    end
     ;;
-*)
 
 let evalOp (op: string)  (left: float) (right: float) : float =
     match op with
@@ -87,37 +79,45 @@ let evalOp (op: string)  (left: float) (right: float) : float =
     | _   -> 0.0
     ;;
 
-let rec evalExpr (_e: expr) (_q:envQueue) :float  =
-    match _e with
+let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
+    match exp with
     | Num(num)              -> num
-    | Var(variable)         -> varEval variable _q
-    | Op2(op, e1, e2)       -> let left = evalExpr e1 _q in
-                               let right = evalExpr e2 _q in
+    | Var(variable)         -> varEval variable scopes
+    | Op2(op, e1, e2)       -> let left = evalExpr e1 scopes in
+                               let right = evalExpr e2 scopes in
                                evalOp op left right
     
     | _                     -> 0.0
     ;;
 
 
-let evalCode (_code: block) (_q:envQueue): unit = 
+
+let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
+    match s with 
+        | Assign(var, expr)  ->  let value = evalExpr expr scopes in
+                                assignVar var value scopes;
+                                scopes
+        | If(e, codeT, codeF) -> 
+            let cond = evalExpr e scopes in
+                if(cond > 0.0) then 
+                    evalCode codeT scopes 
+                else
+                    evalCode codeF scopes
+            ;
+            scopes
+        | Expr(expr)          -> let result = evalExpr expr scopes in
+                                 print_float result;
+                                 scopes
+        | _ -> scopes (*ignore *)
+
+and evalCode (stat_list: block) (scopes :envQueue): unit = 
     (* crate new environment *)
     (* user fold_left  *)
     (* pop the local environment *)
-    print_endline "Not implemented"
-
-let evalStatement (s: statement) (q:envQueue): envQueue =
-    match s with 
-        | Assign(_v, _e) -> (*let value = eval
-                            assignVar _v _e*) q
-        | If(e, codeT, codeF) -> 
-            let cond = evalExpr e q in
-                if(cond > 0.0) then 
-                    evalCode codeT q 
-                else
-                    evalCode codeF q
-            ;
-            q
-        | _ -> q (*ignore *)
+    match stat_list with
+    | hd::tl        -> let s = evalStatement hd scopes in
+                       evalCode tl scopes
+    | _             -> ()
     ;;
 
 (* Test for expression
@@ -134,33 +134,33 @@ let%expect_test "evalVar" =
     let var = Var("i") in
     let scope = Scope.empty in
     let global = Scope.empty in
-    let testScopes = Stack.create () in
 
     let scope = Scope.add "i" 24.0 scope in
     let global = Scope.add "r" 23.0 global in
     
-    Stack.push global testScopes;
-    Stack.push scope globalStack;
+    Stack.push scope localStack;
+    Stack.push global globalStack;
 
-    evalExpr var testScopes |>
+    evalExpr var localStack |>
     printf "%F";
-    [%expect {| 1. |}]
+    [%expect {| 24. |}]
 
 (* 
     v = 10; 
     v // display v
  *)
 let p1: block = [
-        Assign("v", Num(1.0));
+        Assign("v", Num(4.0));
         Expr(Var("v")) 
 ];;
 
-(*
+
 let%expect_test "p1" =
-    evalCode p1 []; 
-    [%expect {| 1. |}]
+    Stack.push Scope.empty localStack;
+    Stack.push Scope.empty globalStack;
+    evalCode p1 localStack; 
+    [%expect {| 4. |}]
     ;;
-    *)
 
 (*
     v = 1.0;
