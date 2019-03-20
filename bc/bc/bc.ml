@@ -36,24 +36,6 @@ let localStack = Stack.create () ;;
 Stack.push Scope.empty localStack ;;
 Stack.push Scope.empty globalStack ;;
 
-(* Gets value from the global scope *)    
-let rec getGlobalValue (var: string) : float =
-    let globalScope = Stack.top globalStack in
-    let value = Scope.find_opt var globalScope in
-    match value with
-    | Some(flt)     -> flt
-    | None          -> 0.0
-    ;;
-
-let varEval (var: string) (scopes :envQueue): float  = 
-    let topScope = Stack.top scopes in
-    let value = Scope.find_opt var topScope in
-    match value with
-    | Some(flt)     -> flt
-    | None          -> getGlobalValue var
-    ;;
-
-
 let assignVar (var: string) (value : float) (scopes :envQueue): unit = 
     let localScope = Stack.pop scopes in
     let globalScope = Stack.pop globalStack in
@@ -73,6 +55,23 @@ let assignVar (var: string) (value : float) (scopes :envQueue): unit =
     end
     ;;
 
+(* Gets value from the global scope *)    
+let rec getGlobalValue (var: string) : float =
+    let globalScope = Stack.top globalStack in
+    let value = Scope.find_opt var globalScope in
+    match value with
+    | Some(flt)     -> flt
+    | None          -> 0.0
+    ;;
+
+let varEval (var: string) (scopes :envQueue): float  = 
+    let topScope = Stack.top scopes in
+    let value = Scope.find_opt var topScope in
+    match value with
+    | Some(flt)     -> flt
+    | None          -> getGlobalValue var
+    ;;
+
 let evalPre (addVal : float) (exp : expr) (scopes :envQueue) : float =
     match exp with
         | Var(var)  -> let value = varEval var scopes in 
@@ -81,8 +80,6 @@ let evalPre (addVal : float) (exp : expr) (scopes :envQueue) : float =
                        value
         | _         -> 0.0 (* TO DO throw error *)
     ;;
-
-
 
 let evalRel (op: string)  (left: float) (right: float) : float =
     let diff = left -. right in
@@ -137,14 +134,13 @@ match op with
     | _   -> 0.0  (* To do throw error *)
     ;;
 
-
 let rec evalStatement (s: statement) (scopes :envQueue): envQueue =
     match s with 
         | Assign(var, expr)  ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
                                 scopes
-        | If(e, codeT, codeF) -> 
-            let cond = evalExpr e scopes in
+        | If(exp, codeT, codeF) -> 
+            let cond = evalExpr exp scopes in
                 if(cond > 0.0) then 
                     evalCode codeT scopes 
                 else
@@ -217,6 +213,30 @@ let%expect_test "p1" =
                 1.
                 0.
                 |}]
+    ;;
+
+(* If else test
+    v = 0
+
+    if (v - 4) < 0.0 then
+    ++v
+    else
+    --v
+*)
+let ifelse: block = [
+    Assign("v", Num(0.0));
+    If(
+        Op2("<", Op2("-",  Var("v"), Num(4.0)), Num(0.0)), 
+        [Expr(Op1("++", Var("v")))], 
+        [Expr(Op1("--", Var("v")))]
+    );
+];;
+
+let%expect_test "ifelse" =
+    evalCode ifelse localStack; 
+    [%expect {| 
+              1.
+              |}]
     ;;
 
 (*
