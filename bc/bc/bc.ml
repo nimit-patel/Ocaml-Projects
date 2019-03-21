@@ -1,4 +1,4 @@
-open Core.Std ;;
+open Core ;;
 open Caml ;;
 module Scope = Caml.Map.Make(String) ;;
 
@@ -13,6 +13,9 @@ let globalStack = Stack.create () ;;
 let localStack = Stack.create () ;;
 Stack.push Scope.empty localStack ;;
 Stack.push Scope.empty globalStack ;;
+
+(* regex for matching variable name and function name *)
+let var_regex = Str.regexp "[a-z]+[a-zA-Z0-9_*]" ;;
 
 type sExpr = 
     | Atom of string
@@ -50,6 +53,10 @@ let paramMap : string list Scope.t ref = ref Scope.empty;;
 
 (* Puts value into the appropriate scope *)
 let assignVar (var: string) (value : float) (scopes :envQueue): unit = 
+
+    if (Str.string_match (Str.regexp "[a-z]+[a-zA-Z0-9_]*") var 0) = false then
+        raise(Error("Invalid variable name: " ^ var ^ "\n"));
+
     let localScope = Stack.pop scopes in
     let globalScope = Stack.pop globalStack in
 
@@ -80,6 +87,9 @@ let getGlobalValue (var: string) (scopes :envQueue) : float =
 
 (* Gets value from the local scope *)
 let varEval (var: string) (scopes :envQueue): float  = 
+    if (Str.string_match (Str.regexp "[a-z]+[a-zA-Z0-9_]*") var 0) = false then
+        raise(Error("Invalid variable name: " ^ var ^ "\n"));
+
     let topScope = Stack.top scopes in
     let value = Scope.find_opt var topScope in
     match value with
@@ -112,7 +122,7 @@ let evalLogical (op: string)  (left: float) (right: float) : float =
     match op with
     | "&&" -> if (left != 0.0) && (right != 0.0) then 1.0 else 0.0
     | "||" -> if (left != 0.0) || (right != 0.0) then 1.0 else 0.0
-    |  _   -> raise (Error("Invalid logical operator " ^ op));
+    |  _   -> raise (Error("Invalid logical operator " ^ op ^ "\n"));
     ;;
 
 let evalOp (op: string)  (left: float) (right: float) : float =
@@ -125,7 +135,7 @@ let evalOp (op: string)  (left: float) (right: float) : float =
     | "%" -> float_of_int ((int_of_float left) mod (int_of_float right))
     | ">" | "<" | ">=" | "<=" | "==" | "!=" -> evalRel op left right
     | "&&" | "||" -> evalLogical op left right
-    | _   -> raise (Error("Invalid binary operator " ^ op));
+    | _   -> raise (Error("Invalid binary operator " ^ op ^ "\n"));
     ;;
 
 let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
@@ -145,7 +155,7 @@ match op with
              if value == 0.0 then 1.0 else 0.0
     | "-" -> let value = evalExpr exp scopes in
              value *. -1.0
-    | _   -> raise (Error("Invalid unary operator " ^ op));
+    | _   -> raise (Error("Invalid unary operator " ^ op ^ "\n"));
     ;
 
 and evalStatement (s: statement) (scopes :envQueue): envQueue =
@@ -214,6 +224,8 @@ and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (s
     ;
     
 and putFuncDef (name : string) (params : string list) (stat_list : statement list) : unit = 
+    if (Str.string_match (Str.regexp "[a-z]+[a-zA-Z0-9_]*") name 0) = false then
+        raise(Error("Invalid function name: " ^ name ^ "\n"));
     let key = string_of_int (List.length params) ^ name in
     funcMap := Scope.add key stat_list !funcMap;
     paramMap := Scope.add key params !paramMap;
@@ -246,7 +258,7 @@ and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
                         flt
         
     else
-        0.0
+        raise (Error("Cannot find function name: " ^ name ^ "\n"));
     ;;
 
 let runCode (code: block) : unit =
@@ -736,5 +748,56 @@ let%expect_test "gcd" =
                  3.
                  11.
                  4.
+            |}]
+    ;;
+
+
+(* Program test 4: hasDigit*)
+(*
+    hasDigit(num, digit){
+       while(num >= 1.0){
+            if(num % 10 == digit){
+                return 1.0
+            }
+            num = num / 10
+       }
+
+       return 0.0
+    }
+*)
+
+let hasDigit : block = [
+    FctDef("hasDigit", 
+            ["num"; "digit"],
+            [
+                While(
+                    Op2(">=", Var("num"), Num(1.0)),
+                    [
+                    If(
+                        Op2("==", Op2("%", Var("num"), Num(10.0)), Var("digit")),
+                        [Return(Num(1.0))],
+                        []
+                    );
+                    Assign("num", Op2("/", Var("num"), Num(10.0)));
+                    ]
+                );
+                Return(Num(0.0));
+            ]
+    );
+
+    
+    Expr(Fct("hasDigit", [Num(0.0); Num(1.0)]));
+    Expr(Fct("hasDigit", [Num(1.0); Num(0.0)]));
+    Expr(Fct("hasDigit", [Num(1234.0); Num(1.0)]));
+    Expr(Fct("hasDigit", [Num(1234.0); Num(4.0)]));
+];;
+
+let%expect_test "hasDigit" =
+    runCode hasDigit; 
+    [%expect {|
+               0.
+               0.
+               1.
+               1. 
             |}]
     ;;
