@@ -411,6 +411,63 @@ let%expect_test "for_test" =
     [%expect {| 362880. |}]
     ;;
 
+(* 
+    for(i = 0; i <= 10; ++i){
+        if(i == 0){
+            continue
+        }
+
+        sum = 0
+        for(j = i; j > 0; --j){
+            sum = sum + j
+        }
+        sum // print sum
+    }
+*)
+
+let for_nested_test: block = [
+        For(
+            Assign("i", Num(0.0)),
+            Op2("<=", Var("i"), Num(10.0)),
+            Assign("i", Op2("+", Var("i"), Num(1.0))),
+            [   
+                If
+                (   Op2("==", Var("i"), Num(0.0)),
+                    [Continue],
+                    []
+                );
+
+                Assign("sum", Num(0.0));
+
+                
+                For(
+                Assign("j", Var("i")),
+                Op2(">", Var("j"), Num(0.0)),
+                Assign("j", Op2("-", Var("j"), Num(1.0))),
+                [Assign("sum", Op2("+", Var("sum"), Var("j")))]
+                );
+
+                Expr(Var("sum"));
+            ]  
+        );
+];;
+
+
+let%expect_test "for_nested_test" =
+    runCode for_nested_test; 
+    [%expect {| 
+                1.
+                3.
+                6.
+                10.
+                15.
+                21.
+                28.
+                36.
+                45.
+                55.
+            |}]
+    ;;
 
 (* 
 Function TEST 1
@@ -465,7 +522,6 @@ let%expect_test "square" =
 
 
 
-
 (*  
 Function TEST 3
     Fibbonaci sequence
@@ -479,6 +535,7 @@ Function TEST 3
     f(3)
     f(5)
  *)
+
 let fib: block = 
     [
         FctDef("fib", ["x"], [
