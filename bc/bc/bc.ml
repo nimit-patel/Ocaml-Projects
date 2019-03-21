@@ -2,6 +2,8 @@ open Core.Std ;;
 open Caml ;;
 module Scope = Caml.Map.Make(String) ;;
 
+exception Ret of float;;
+
 let globalStack = Stack.create () ;;
 let localStack = Stack.create () ;;
 Stack.push Scope.empty localStack ;;
@@ -148,6 +150,8 @@ and evalStatement (s: statement) (scopes :envQueue): envQueue =
         | Assign(var, expr) ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
                                 scopes
+        | Return(expr)      -> evalReturn expr scopes;
+                               scopes
         | Expr(expr)        -> let result = evalExpr expr scopes in
                                 result |> printf "%F\n";
                                 scopes
@@ -168,7 +172,7 @@ and evalStatement (s: statement) (scopes :envQueue): envQueue =
                                                 scopes
         | FctDef (name, params, stat_list) -> putFuncDef name params stat_list;
                                               scopes
-        | _ -> scopes (*ignore *)
+
         ;
 and evalCode (stat_list: block) (scopes :envQueue): unit = 
     match stat_list with
@@ -176,6 +180,7 @@ and evalCode (stat_list: block) (scopes :envQueue): unit =
                        evalCode tl scopes
     | _             -> ()
     ;
+    
 and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (scopes: envQueue): unit = 
     if (evalExpr cond scopes) <> 1.0 then
        ()
@@ -197,22 +202,31 @@ and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
     
     if (Scope.mem key !funcMap) then 
         let impl = Scope.find key !funcMap in
-        let params = Scope.find key !paramMap in  
-        Stack.push Scope.empty scopes;  (* add new function scope *)
+        let params = Scope.find key !paramMap in
+        let funcScope: float Scope.t ref =  ref Scope.empty in  
 
         for i = 0 to (paramCount - 1) do
             let var = List.nth params i in
             let value = evalExpr (List.nth args i) scopes in 
-            let funcScope = Stack.pop scopes in
-            let funcScope = Scope.add var value funcScope in
-            Stack.push funcScope scopes;
+            funcScope := Scope.add var value !funcScope;
         done;
+        
+        Stack.push !funcScope scopes;
 
-        evalCode impl scopes;
-        let funcScope = Stack.pop scopes in (* remove function scope *)
-        0.0
+        try 
+            evalCode impl scopes;
+            let funcScope = Stack.pop scopes in (* remove function scope *)
+            0.0
+        with
+            Ret(flt) -> let funcScope = Stack.pop scopes in (* remove function scope *)
+                        flt
+        
     else
         0.0
+    ;
+and evalReturn (exp : expr) (scopes :envQueue) : unit =
+    let ret_value = evalExpr exp scopes in
+    raise (Ret(ret_value))
     ;;
 
 (* Test for expression *)
@@ -379,10 +393,39 @@ let%expect_test "foo" =
     |}]
     ;;
 
+
+(* 
+Function TEST 2
+    square(x){
+        return x * x
+    }
+*)
+
+let square: block = 
+    [
+        FctDef("square", ["x"], [
+            Return(Op2("*", Var("x"), Var("x")))
+        ]);
+        Expr(Fct("square", [Num(2.0)]));
+    ]
+    ;;
+
+let%expect_test "square" = 
+    evalCode square localStack;
+    [%expect {| 
+    4.
+    |}]
+    ;;
+
+
+
+
+
 (*  Fibbonaci sequence
+    0, 1, 1, 2, 3, 5, 8
     define f(x) {
-        if (x<1.0) then
-            return (1.0)
+        if (x <= 1.0) then
+            return x
         else
             return (f(x-1)+f(x-2))
     }
@@ -394,10 +437,10 @@ let p3: block =
         FctDef("f", ["x"], [
             If(
                 Op2("<=", Var("x"), Num(1.0)),
-                [Return(Num(1.0))],
+                [Return(Var("x"))],
                 [Return(Op2("+",
                     Fct("f", [Op2("-", Var("x"), Num(1.0))]),
-                    Fct("f", [Op2("-", Var("x"), Num(1.0))])
+                    Fct("f", [Op2("-", Var("x"), Num(2.0))])
                 ))])
         ]);
         Expr(Fct("f", [Num(3.0)]));
@@ -405,15 +448,12 @@ let p3: block =
     ]
     ;;
 
-(*
+
 let%expect_test "p3" =
-    evalCode p3 []; 
+    evalCode p3 localStack; 
     [%expect {| 
-        2. 
-        5.      
+        2.
+        5.
     |}]
     ;;
-    *)
-
-(* ADD run. Internal func can change *)
-(* Read no needed *)
+    
