@@ -2,19 +2,17 @@ open Core.Std ;;
 open Caml ;;
 module Scope = Caml.Map.Make(String) ;;
 
-exception Ret of float ;;
-exception Brk of unit ;;
-exception Cont of unit ;;
+(* Exceptions to handle return, break, and continue *)
+exception Ret of float  ;;
+exception Brk of unit   ;;
+exception Cont of unit  ;;
+exception Error of string ;;
 
+(* Stacks for variables *)
 let globalStack = Stack.create () ;;
 let localStack = Stack.create () ;;
 Stack.push Scope.empty localStack ;;
 Stack.push Scope.empty globalStack ;;
-
-
-(*
-module Param = Map.Make(struct type t = int let compare = compare end) ;;
-*)
 
 type sExpr = 
     | Atom of string
@@ -30,10 +28,10 @@ type expr =
     ;;
 
 type statement = 
-    | Assign of string*expr
     | Break
     | Continue
     | Return of expr
+    | Assign of string*expr
     | Expr of expr
     | If of expr* statement list * statement list
     | While of expr*statement list
@@ -71,7 +69,7 @@ let assignVar (var: string) (value : float) (scopes :envQueue): unit =
     ;;
 
 (* Gets value from the global scope *)    
-let rec getGlobalValue (var: string) (scopes :envQueue) : float =
+let getGlobalValue (var: string) (scopes :envQueue) : float =
     let globalScope = Stack.top globalStack in
     let value = Scope.find_opt var globalScope in
     match value with
@@ -95,7 +93,7 @@ let evalPre (addVal : float) (exp : expr) (scopes :envQueue) : float =
                        let value = value +. addVal in
                        assignVar var value scopes;
                        value
-        | _         -> 0.0 (* TO DO throw error *)
+        | _         -> raise (Error("Invalid operation on expression!"));
     ;;
 
 let evalRel (op: string)  (left: float) (right: float) : float =
@@ -107,12 +105,14 @@ let evalRel (op: string)  (left: float) (right: float) : float =
     | "<="   -> if diff <= 0. then 1.0 else 0.0
     | "=="   -> if diff = 0. then 1.0 else 0.0
     | "!="   -> if diff <> 0. then 1.0 else 0.0
+    | _      -> raise (Error("Invalid relational operator " ^ op));
     ;;
 
 let evalLogical (op: string)  (left: float) (right: float) : float =
     match op with
     | "&&" -> if (left != 0.0) && (right != 0.0) then 1.0 else 0.0
     | "||" -> if (left != 0.0) || (right != 0.0) then 1.0 else 0.0
+    |  _   -> raise (Error("Invalid logical operator " ^ op));
     ;;
 
 let evalOp (op: string)  (left: float) (right: float) : float =
@@ -122,9 +122,10 @@ let evalOp (op: string)  (left: float) (right: float) : float =
     | "+" -> left +. right
     | "-" -> left -. right
     | "^" -> left ** right
+    | "%" -> float_of_int ((int_of_float left) mod (int_of_float right))
     | ">" | "<" | ">=" | "<=" | "==" | "!=" -> evalRel op left right
     | "&&" | "||" -> evalLogical op left right
-    | _   -> 0.0
+    | _   -> raise (Error("Invalid binary operator " ^ op));
     ;;
 
 let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
@@ -136,8 +137,9 @@ let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
                                let right = evalExpr e2 scopes in
                                evalOp op left right
     | Fct(name, expr_list)  -> evalFunc name expr_list scopes
-    | _                     -> 0.0
+    | _                     -> raise (Error("Invalid expression!"));
     ;
+
 and evalUnary (op : string) (exp : expr) (scopes :envQueue) : float = 
 match op with
     | "++"  -> evalPre 1.0 exp scopes
@@ -146,18 +148,20 @@ match op with
              if value == 0.0 then 1.0 else 0.0
     | "-" -> let value = evalExpr exp scopes in
              value *. -1.0
-    | _   -> 0.0  (* To do throw error *)
+    | _   -> raise (Error("Invalid unary operator " ^ op));
     ;
 
 and evalStatement (s: statement) (scopes :envQueue): envQueue =
     match s with 
+        | Break             ->  raise (Brk ())
+        | Continue          ->  raise (Cont ())
+        | Return(expr)      ->  raise (Ret(evalExpr expr scopes));
+                            
         | Assign(var, expr) ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
                                 scopes
 
-        | Return(expr)      ->  evalReturn expr scopes;
-                                scopes
-
+        
         | Expr(expr)        ->  let result = evalExpr expr scopes in
                                 result |> printf "%F\n";
                                 scopes
@@ -171,16 +175,18 @@ and evalStatement (s: statement) (scopes :envQueue): envQueue =
         | For(init, cond, update, stat_list) -> let tmp = evalStatement init scopes in
                                                 evalForLoop cond update stat_list scopes;
                                                 scopes
-                                                
+
         | FctDef (name, params, stat_list)   -> putFuncDef name params stat_list;
                                                 scopes
+    
+        | _                                  ->  raise (Error("Invalid statement!"));
 
         ;
 and evalCode (stat_list: block) (scopes :envQueue): unit = 
     match stat_list with
     | hd::tl        -> let s = evalStatement hd scopes in
                        evalCode tl scopes
-    | _             -> ()
+    | []            -> ()
     ;
 
 and evalIfElse (exp : expr) (codeT : statement list) (codeF : statement list) (scopes : envQueue): unit =
@@ -190,25 +196,39 @@ and evalIfElse (exp : expr) (codeT : statement list) (codeF : statement list) (s
         evalCode codeF scopes
     ;
 and evalWhileLoop (cond : expr) (stat_list : statement list) (scopes: envQueue): unit =
-    while (evalExpr cond scopes) = 1.0 do
-        evalCode stat_list scopes 
-    done
+    if (evalExpr cond scopes) <> 1.0 then
+        ()
+    else begin
+            try
+                evalCode stat_list scopes;
+                evalWhileLoop cond stat_list scopes
+            with
+              Brk  () -> ()
+            | Cont () -> evalWhileLoop cond stat_list scopes
+        end
     ;
 
 and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (scopes: envQueue): unit = 
     if (evalExpr cond scopes) <> 1.0 then
        ()
     else begin
-        evalCode stat_list scopes;
-        let tmp = evalStatement update scopes in
-        evalForLoop cond update stat_list scopes
-    end
+            try
+                evalCode stat_list scopes;
+                let tmp = evalStatement update scopes in
+                evalForLoop cond update stat_list scopes
+            with
+              Brk  () -> ()
+            | Cont () -> let tmp = evalStatement update scopes in
+                         evalForLoop cond update stat_list scopes
+         end
     ;
+    
 and putFuncDef (name : string) (params : string list) (stat_list : statement list) : unit = 
     let key = string_of_int (List.length params) ^ name in
     funcMap := Scope.add key stat_list !funcMap;
     paramMap := Scope.add key params !paramMap;
     ;
+
 and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
     (* determine if the function exist *)
     let paramCount = (List.length args) in
@@ -229,74 +249,71 @@ and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
 
         try 
             evalCode impl scopes;
-            let funcScope = Stack.pop scopes in (* remove function scope *)
+            let tmp = Stack.pop scopes in (* remove function scope *)
             0.0
         with
-            Ret(flt) -> let funcScope = Stack.pop scopes in (* remove function scope *)
+            Ret(flt) -> let tmp = Stack.pop scopes in (* remove function scope *)
                         flt
         
     else
         0.0
-    ;
-and evalReturn (exp : expr) (scopes :envQueue) : unit =
-    let ret_value = evalExpr exp scopes in
-    raise (Ret(ret_value))
     ;;
+
+let runCode (code: block) : unit =
+    try
+        evalCode code localStack; 
+    with
+        Error(msg) -> print_endline msg;
+    ;;
+
+let testExpr : block = [
+    Expr(Op2("+", Op2("*", (Num 20.0), (Num 20.0)), (Num 4.0)))
+];;
 
 (* Test for expression *)
-let%expect_test "evalNum" = 
-    let t1 = Op2("+", Op2("-", (Num 20.0), (Num 20.0)), (Num 4.0))  in
-    Stack.push Scope.empty localStack;
-    evalExpr t1  localStack |>
-    printf "%F";
-    [%expect {| 4. |}]
+let%expect_test "testExpr" = 
+    runCode testExpr;  
+    [%expect {| 404. |}]
     ;;
 
+let testVar : block = [
+    Expr(Var("i"))
+];;
+
 (* Test for variable *)
-let%expect_test "evalVar" = 
-    let var = Var("i") in
-
-    let scope = Scope.empty in
-    let global = Scope.empty in
-    let scope = Scope.add "i" 24.0 scope in
-    let global = Scope.add "r" 23.0 global in
-    Stack.push scope localStack;
-    Stack.push global globalStack;
-
-    let cl:block = [Return(Num(0.0))] in
-    let sl = [""] in
-    funcMap := Scope.add "" cl !funcMap;
-
-    evalExpr var localStack |>
-    printf "%F";
-    [%expect {| 24. |}]
+let%expect_test "testVar" = 
+    runCode testVar;
+    [%expect {| 0. |}]
+    ;;
 
 (* 
     v = 4; 
     v //  4
     ++v // 5
-    v = v + 4 + v - 4
-    v  // 10
+    v = (v + 4) / 2.25
+    v == 2.25
+    v != 2.25 
  *)
-let p1: block = [
+
+let testAssign: block = [
         Assign("v", Num(4.0));
         Expr(Var("v"));
         Expr(Op1("++", Var("v")));
-        Assign("v", Op2("+", Op2("+", Var("v"), Num(4.0)),  Op2("-", Var("v"), Num(4.0))));
+        Assign("v", Op2("/", Op2("+", Var("v"), Num(4.0)), Num(4.0)));
         Expr(Var("v"));
-        Expr(Op2("==", Var("v"), Num(10.0)));
-        Expr(Op2("!=", Var("v"), Num(10.0)));
+        Expr(Op2("==", Var("v"), Num(2.25)));
+        Expr(Op2("!=", Var("v"), Num(2.25)));
 ];;
 
 let%expect_test "p1" =
-    evalCode p1 localStack; 
+    runCode testAssign; 
     [%expect {| 
                 4.
                 5. 
-                10.
+                2.25
                 1.
                 0.
-                |}]
+            |}]
     ;;
 
 (* 
@@ -318,45 +335,60 @@ let ifelse: block = [
 ];;
 
 let%expect_test "ifelse" =
-    evalCode ifelse localStack; 
+    runCode ifelse;
     [%expect {| 
               1.
               |}]
     ;;
 
-let while_test: block = [
+
+(* 
+    while(k < 10){
+        if(k == 4){
+            break;
+        }
+        ++k;
+    }
+*)
+let while_break_test: block = [
     While(
         Op2("<", Var("k"), Num(10.0)),
-        [Expr(Op1("++", Var("k")))]
+        [   
+            If(
+                Op2("==", Var("k"), Num(4.0)),
+                [Break],
+                []
+            );
+
+            Expr(Op1("++", Var("k")));
+        ]
     );
 ];;
 
-let%expect_test "while_test" =
-evalCode while_test localStack; 
-[%expect {| 
-            1.
-            2.
-            3.
-            4.
-            5.
-            6.
-            7.
-            8.
-            9.
-            10.
+let%expect_test "while_break_test" =
+    runCode while_break_test; 
+    [%expect {| 
+                1.
+                2.
+                3.
+                4.
             |}]
 ;;
+
+
+
 (*
     v = 1.0;
     if (v>10.0) then
         v = v + 1.0
     else
         for(i=2.0; i<10.0; i++) {
+            
             v = v * i
         }
     v   // display v
 *)
-let p2: block = [
+let for_test: block = [
     Assign("v", Num(1.0));
     If(
         Op2(">", Var("v"), Num(10.0)), 
@@ -374,8 +406,8 @@ let p2: block = [
 ];;
 
 
-let%expect_test "p1" =
-    evalCode p2 localStack; 
+let%expect_test "for_test" =
+    runCode for_test; 
     [%expect {| 362880. |}]
     ;;
 
@@ -399,7 +431,7 @@ let foo: block =
     ;;
 
 let%expect_test "foo" = 
-    evalCode foo localStack;
+    runCode foo;
     [%expect {| 
     4.
     0.
@@ -425,17 +457,18 @@ let square: block =
     ;;
 
 let%expect_test "square" = 
-    evalCode square localStack;
+    runCode square;
     [%expect {| 
-    4.
-    |}]
+                4.
+            |}]
     ;;
 
 
 
 
-
-(*  Fibbonaci sequence
+(*  
+Function TEST 3
+    Fibbonaci sequence
     0, 1, 1, 2, 3, 5, 8
     define f(x) {
         if (x <= 1.0) then
@@ -446,28 +479,63 @@ let%expect_test "square" =
     f(3)
     f(5)
  *)
-let p3: block = 
+let fib: block = 
     [
-        FctDef("f", ["x"], [
+        FctDef("fib", ["x"], [
             If(
                 Op2("<=", Var("x"), Num(1.0)),
                 [Return(Var("x"))],
                 [Return(Op2("+",
-                    Fct("f", [Op2("-", Var("x"), Num(1.0))]),
-                    Fct("f", [Op2("-", Var("x"), Num(2.0))])
+                    Fct("fib", [Op2("-", Var("x"), Num(1.0))]),
+                    Fct("fib", [Op2("-", Var("x"), Num(2.0))])
                 ))])
         ]);
-        Expr(Fct("f", [Num(3.0)]));
-        Expr(Fct("f", [Num(5.0)]));
+        Expr(Fct("fib", [Num(3.0)]));
+        Expr(Fct("fib", [Num(5.0)]));
     ]
     ;;
 
 
-let%expect_test "p3" =
-    evalCode p3 localStack; 
+let%expect_test "fib" =
+    runCode fib; 
     [%expect {| 
         2.
         5.
     |}]
     ;;
-    
+
+(*
+Function TEST 4
+fact(x){
+    if(x <= 0){
+        return 1
+    }
+    return n * fact(n - 1);
+}
+*)
+
+let fact: block = 
+    [
+        FctDef("fact", ["x"], [
+            If(
+                Op2("<=", Var("x"), Num(0.0)),
+                [Return(Num(1.0))],
+                [Return(
+                    Op2("*", 
+                    Var("x"), 
+                    Fct("fact", [Op2("-", Var("x"), Num(1.0))])
+                ))])
+        ]);
+        Expr(Fct("fact", [Num(4.0)]));
+        Expr(Fct("fact", [Num(10.0)]));
+    ]
+;;
+
+
+let%expect_test "fact" =
+    runCode fact; 
+    [%expect {| 
+                24.
+                3628800.
+            |}]
+;;
