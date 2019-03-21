@@ -622,22 +622,18 @@ let%expect_test "for_nested_test" =
 
 
 
-(* Program Test 1*)
+(* Program Test 1: reverseInt*)
 (*
-    // reverse positive integer
-
     rev(num){
         res = 0;
 
-        while( num != 0){
+        while( num >= 1){
             res = res * 10 + num % 10
             num = num % 10 
         }
 
         return res;
     }
-
-
 *)
 
 
@@ -669,7 +665,76 @@ let%expect_test "reverseInt" =
             |}]
     ;;
 
-(* Program Test 3*)
+(* Program Test 2: max *)
+(*
 
+    max(a, b){
+        if(a >= b){
+            return a
+        }else{
+            return b
+        }
+    }
+*)
+let max : block = [
+    FctDef("max", 
+            ["num1"; "num2"],
+            [
+                If(
+                    Op2(">=", Var("num1"), Var("num2")),
+                    [Return(Var("num1"))],
+                    [Return(Var("num2"))]
+                )
+            ]
+    );
 
-(* Program Test 4*)
+    Expr(Fct("max", [Num(4.0); Num(7.0)]));
+    Expr(Fct("max", [Num(123.0); Num(100.0)]))
+];;
+
+let%expect_test "max" =
+    runCode max; 
+    [%expect {|
+                 7.
+                 123.
+            |}]
+    ;;
+
+(* Program Test 3: gcd *)
+
+(*
+    gcd(a,b){
+        if(b == 0){
+            return a
+        }else{
+            return gcd(b, a % b)
+        }
+    }
+*)
+let gcd : block = [
+    FctDef("gcd", 
+            ["a"; "b"],
+            [
+                If(
+                    Op2("==", Var("b"), Num(0.0)),
+                    [Return(Var("a"))],
+                    [Return(Fct("gcd", [Var("b"); Op2("%", Var("a"), Var("b"))]))]
+                )
+            ]
+    );
+
+    Expr(Fct("gcd", [Num(4.0); Num(3.0)]));
+    Expr(Fct("gcd", [Num(0.0); Num(3.0)]));
+    Expr(Fct("gcd", [Num(32131.0); Num(1221.0)]));
+    Expr(Fct("gcd", [Num(8.0); Num(12.0)]));
+];;
+
+let%expect_test "gcd" =
+    runCode gcd; 
+    [%expect {|
+                 1.
+                 3.
+                 11.
+                 4.
+            |}]
+    ;;
