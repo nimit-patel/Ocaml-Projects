@@ -2,7 +2,9 @@ open Core.Std ;;
 open Caml ;;
 module Scope = Caml.Map.Make(String) ;;
 
-exception Ret of float;;
+exception Ret of float ;;
+exception Brk of unit ;;
+exception Cont of unit ;;
 
 let globalStack = Stack.create () ;;
 let localStack = Stack.create () ;;
@@ -29,6 +31,8 @@ type expr =
 
 type statement = 
     | Assign of string*expr
+    | Break
+    | Continue
     | Return of expr
     | Expr of expr
     | If of expr* statement list * statement list
@@ -150,28 +154,26 @@ and evalStatement (s: statement) (scopes :envQueue): envQueue =
         | Assign(var, expr) ->  let value = evalExpr expr scopes in
                                 assignVar var value scopes;
                                 scopes
-        | Return(expr)      -> evalReturn expr scopes;
-                               scopes
-        | Expr(expr)        -> let result = evalExpr expr scopes in
+
+        | Return(expr)      ->  evalReturn expr scopes;
+                                scopes
+
+        | Expr(expr)        ->  let result = evalExpr expr scopes in
                                 result |> printf "%F\n";
                                 scopes
-        | If(exp, codeT, codeF) -> 
-            let cond = evalExpr exp scopes in
-                if(cond > 0.0) then 
-                    evalCode codeT scopes 
-                else
-                    evalCode codeF scopes
-            ;
-            scopes
-        | While(cond, stat_list)      -> while (evalExpr cond scopes) = 1.0 do
-                                            evalCode stat_list scopes 
-                                         done;
+
+        | If(exp, codeT, codeF)       -> evalIfElse exp codeT codeF scopes;          
                                          scopes
+
+        | While(cond, stat_list)      -> evalWhileLoop cond stat_list scopes;
+                                         scopes
+
         | For(init, cond, update, stat_list) -> let tmp = evalStatement init scopes in
                                                 evalForLoop cond update stat_list scopes;
                                                 scopes
-        | FctDef (name, params, stat_list) -> putFuncDef name params stat_list;
-                                              scopes
+                                                
+        | FctDef (name, params, stat_list)   -> putFuncDef name params stat_list;
+                                                scopes
 
         ;
 and evalCode (stat_list: block) (scopes :envQueue): unit = 
@@ -180,7 +182,19 @@ and evalCode (stat_list: block) (scopes :envQueue): unit =
                        evalCode tl scopes
     | _             -> ()
     ;
-    
+
+and evalIfElse (exp : expr) (codeT : statement list) (codeF : statement list) (scopes : envQueue): unit =
+    if(evalExpr exp scopes > 0.0) then 
+        evalCode codeT scopes 
+    else
+        evalCode codeF scopes
+    ;
+and evalWhileLoop (cond : expr) (stat_list : statement list) (scopes: envQueue): unit =
+    while (evalExpr cond scopes) = 1.0 do
+        evalCode stat_list scopes 
+    done
+    ;
+
 and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (scopes: envQueue): unit = 
     if (evalExpr cond scopes) <> 1.0 then
        ()
