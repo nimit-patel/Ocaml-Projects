@@ -133,11 +133,8 @@ let rec evalExpr (exp : expr) (scopes :envQueue) :float  =
     | Num(num)              -> num
     | Var(variable)         -> varEval variable scopes
     | Op1(op, e1)           -> evalUnary op e1 scopes
-    | Op2(op, e1, e2)       -> let left = evalExpr e1 scopes in
-                               let right = evalExpr e2 scopes in
-                               evalOp op left right
+    | Op2(op, e1, e2)       -> evalOp op (evalExpr e1 scopes) ( evalExpr e2 scopes)
     | Fct(name, expr_list)  -> evalFunc name expr_list scopes
-    | _                     -> raise (Error("Invalid expression!"));
     ;
 
 and evalUnary (op : string) (exp : expr) (scopes :envQueue) : float = 
@@ -156,30 +153,19 @@ and evalStatement (s: statement) (scopes :envQueue): envQueue =
         | Break             ->  raise (Brk ())
         | Continue          ->  raise (Cont ())
         | Return(expr)      ->  raise (Ret(evalExpr expr scopes));
-                            
-        | Assign(var, expr) ->  let value = evalExpr expr scopes in
-                                assignVar var value scopes;
+        | Assign(var, expr) ->  assignVar var (evalExpr expr scopes) scopes;
                                 scopes
-
-        
-        | Expr(expr)        ->  let result = evalExpr expr scopes in
-                                result |> printf "%F\n";
+        | Expr(expr)        ->  evalExpr expr scopes |> printf "%F\n";
                                 scopes
-
-        | If(exp, codeT, codeF)       -> evalIfElse exp codeT codeF scopes;          
-                                         scopes
-
-        | While(cond, stat_list)      -> evalWhileLoop cond stat_list scopes;
-                                         scopes
-
+        | If(exp, codeT, codeF)  -> evalIfElse exp codeT codeF scopes;          
+                                    scopes
+        | While(cond, stat_list) -> evalWhileLoop cond stat_list scopes;
+                                    scopes
         | For(init, cond, update, stat_list) -> let tmp = evalStatement init scopes in
                                                 evalForLoop cond update stat_list scopes;
                                                 scopes
-
         | FctDef (name, params, stat_list)   -> putFuncDef name params stat_list;
                                                 scopes
-    
-        | _                                  ->  raise (Error("Invalid statement!"));
 
         ;
 and evalCode (stat_list: block) (scopes :envQueue): unit = 
@@ -190,13 +176,12 @@ and evalCode (stat_list: block) (scopes :envQueue): unit =
     ;
 
 and evalIfElse (exp : expr) (codeT : statement list) (codeF : statement list) (scopes : envQueue): unit =
-    if(evalExpr exp scopes > 0.0) then 
-        evalCode codeT scopes 
-    else
-        evalCode codeF scopes
+    if(evalExpr exp scopes <> 0.0) then  evalCode codeT scopes 
+    else evalCode codeF scopes
     ;
+
 and evalWhileLoop (cond : expr) (stat_list : statement list) (scopes: envQueue): unit =
-    if (evalExpr cond scopes) <> 1.0 then
+    if (evalExpr cond scopes) = 0.0 then
         ()
     else begin
             try
@@ -209,13 +194,18 @@ and evalWhileLoop (cond : expr) (stat_list : statement list) (scopes: envQueue):
     ;
 
 and evalForLoop (cond : expr) (update: statement) (stat_list: statement list) (scopes: envQueue): unit = 
-    if (evalExpr cond scopes) <> 1.0 then
+    if (evalExpr cond scopes) = 0.0 then
        ()
     else begin
             try
                 evalCode stat_list scopes;
-                let tmp = evalStatement update scopes in
-                evalForLoop cond update stat_list scopes
+
+                match update with
+                | Expr(expr) -> let tmp = evalExpr expr scopes in
+                                evalForLoop cond update stat_list scopes
+                | _          -> let tmp2 = evalStatement update scopes in
+                                evalForLoop cond update stat_list scopes
+                
             with
               Brk  () -> ()
             | Cont () -> let tmp = evalStatement update scopes in
@@ -266,208 +256,47 @@ let runCode (code: block) : unit =
         Error(msg) -> print_endline msg;
     ;;
 
-let testExpr : block = [
-    Expr(Op2("+", Op2("*", (Num 20.0), (Num 20.0)), (Num 4.0)))
-];;
+(*********** Tests ***********)
 
 (* Test for expression *)
-let%expect_test "testExpr" = 
-    runCode testExpr;  
-    [%expect {| 404. |}]
-    ;;
 
+(* Test for Num *)
+let%expect_test "evalNum" = 
+    runCode [Expr(Num 10.0)];
+    [%expect {| 10. |}]
+
+
+(* Test for variable *)
 let testVar : block = [
     Expr(Var("i"))
 ];;
 
-(* Test for variable *)
 let%expect_test "testVar" = 
     runCode testVar;
     [%expect {| 0. |}]
-    ;;
+ ;;
 
-(* 
-    v = 4; 
-    v //  4
-    ++v // 5
-    v = (v + 4) / 2.25
-    v == 2.25
-    v != 2.25 
- *)
-
-let testAssign: block = [
-        Assign("v", Num(4.0));
-        Expr(Var("v"));
-        Expr(Op1("++", Var("v")));
-        Assign("v", Op2("/", Op2("+", Var("v"), Num(4.0)), Num(4.0)));
-        Expr(Var("v"));
-        Expr(Op2("==", Var("v"), Num(2.25)));
-        Expr(Op2("!=", Var("v"), Num(2.25)));
+(* Test for Op1 *)
+let testOp1 : block = [
+    Expr(Op1("++", Var("i")))
 ];;
 
-let%expect_test "p1" =
-    runCode testAssign; 
-    [%expect {| 
-                4.
-                5. 
-                2.25
-                1.
-                0.
-            |}]
+let%expect_test "testOp1" = 
+    runCode testOp1;  
+    [%expect {| 1. |}]
     ;;
 
-(* 
-    If else test
-    v = 0
-
-    if (v - 4) < 0.0 then
-    ++v
-    else
-    --v
-*)
-let ifelse: block = [
-    Assign("v", Num(0.0));
-    If(
-        Op2("<", Op2("-",  Var("v"), Num(4.0)), Num(0.0)), 
-        [Expr(Op1("++", Var("v")))], 
-        [Expr(Op1("--", Var("v")))]
-    );
+(* Test for Op2 *)
+let testOp2 : block = [
+    Expr(Op2("+", Op2("*", (Num 20.0), (Num 20.0)), (Num 4.0)))
 ];;
 
-let%expect_test "ifelse" =
-    runCode ifelse;
-    [%expect {| 
-              1.
-              |}]
+let%expect_test "testOp2" = 
+    runCode testOp2;  
+    [%expect {| 404. |}]
     ;;
 
-
-(* 
-    while(k < 10){
-        if(k == 4){
-            break;
-        }
-        ++k;
-    }
-*)
-let while_break_test: block = [
-    While(
-        Op2("<", Var("k"), Num(10.0)),
-        [   
-            If(
-                Op2("==", Var("k"), Num(4.0)),
-                [Break],
-                []
-            );
-
-            Expr(Op1("++", Var("k")));
-        ]
-    );
-];;
-
-let%expect_test "while_break_test" =
-    runCode while_break_test; 
-    [%expect {| 
-                1.
-                2.
-                3.
-                4.
-            |}]
-;;
-
-
-
-(*
-    v = 1.0;
-    if (v>10.0) then
-        v = v + 1.0
-    else
-        for(i=2.0; i<10.0; i++) {
-            
-            v = v * i
-        }
-    v   // display v
-*)
-let for_test: block = [
-    Assign("v", Num(1.0));
-    If(
-        Op2(">", Var("v"), Num(10.0)), 
-        [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
-        [For(
-            Assign("i", Num(2.0)),
-            Op2("<", Var("i"), Num(10.0)),
-            Assign("i",(Op2("+", Var("i"), Num(1.0)))),
-            [
-                Assign("v", Op2("*", Var("v"), Var("i")))
-            ]
-        )];
-    );
-    Expr(Var("v"))
-];;
-
-
-let%expect_test "for_test" =
-    runCode for_test; 
-    [%expect {| 362880. |}]
-    ;;
-
-(* 
-    for(i = 0; i <= 10; ++i){
-        if(i == 0){
-            continue
-        }
-
-        sum = 0
-        for(j = i; j > 0; --j){
-            sum = sum + j
-        }
-        sum // print sum
-    }
-*)
-
-let for_nested_test: block = [
-        For(
-            Assign("i", Num(0.0)),
-            Op2("<=", Var("i"), Num(10.0)),
-            Assign("i", Op2("+", Var("i"), Num(1.0))),
-            [   
-                If
-                (   Op2("==", Var("i"), Num(0.0)),
-                    [Continue],
-                    []
-                );
-
-                Assign("sum", Num(0.0));
-
-                
-                For(
-                Assign("j", Var("i")),
-                Op2(">", Var("j"), Num(0.0)),
-                Assign("j", Op2("-", Var("j"), Num(1.0))),
-                [Assign("sum", Op2("+", Var("sum"), Var("j")))]
-                );
-
-                Expr(Var("sum"));
-            ]  
-        );
-];;
-
-
-let%expect_test "for_nested_test" =
-    runCode for_nested_test; 
-    [%expect {| 
-                1.
-                3.
-                6.
-                10.
-                15.
-                21.
-                28.
-                36.
-                45.
-                55.
-            |}]
-    ;;
+(* Function tests *)
 
 (* 
 Function TEST 1
@@ -596,3 +425,198 @@ let%expect_test "fact" =
                 3628800.
             |}]
 ;;
+
+
+(* Test for statement *)
+
+(* Assign test *)
+(* 
+    var1 = 10
+    var2 = 20
+    var3 = 10
+    var4 = var1 * var2 + var3
+    var4  // 210
+*)
+
+let testAssign: block = [
+        Assign("var1", Num(10.0));
+        Assign("var2", Num(20.0));
+        Assign("var3", Num(10.0));
+        Assign("var4",  Op2("+", Op2("*", Var("var1"), Var("var2")), Var("var3")));
+        Expr(Var("var4"));
+];;
+
+let%expect_test "testAssign" =
+    runCode testAssign; 
+    [%expect {| 
+                210.
+            |}]
+    ;;
+
+
+(* Test for Expr *)
+(*
+5^((4+2)/3)  // 25
+*)
+let testExpr : block =[
+    Expr(Op2("^", Num(5.0), Op2("/", Op2("+", Num(4.0), Num(2.0)), Num(3.0))));
+];;
+
+let%expect_test "testExpr" = 
+    runCode testExpr;
+    [%expect {| 25. |}]
+    ;;
+
+(* Test for If else *)
+
+(*
+    v = 0
+    if (v - 4) < 0.0 then
+        ++v // 1
+    else
+        --v
+*)
+let ifelse: block = [
+    Assign("v", Num(0.0));
+    If(
+        Op2("<", Op2("-",  Var("v"), Num(4.0)), Num(0.0)), 
+        [Expr(Op1("++", Var("v")))], 
+        [Expr(Op1("--", Var("v")))]
+    );
+];;
+
+let%expect_test "ifelse" =
+    runCode ifelse;
+    [%expect {| 1. |}]
+    ;;
+
+
+(* Test for while with break *)
+(* 
+    while(k < 10){
+        if(k == 4){
+            break;
+        }
+        ++k;
+    }
+*)
+let while_break_test: block = [
+    While(
+        Op2("<", Var("k"), Num(10.0)),
+        [   
+            If(
+                Op2("==", Var("k"), Num(4.0)),
+                [Break],
+                []
+            );
+
+            Expr(Op1("++", Var("k")));
+        ]
+    );
+];;
+
+let%expect_test "while_break_test" =
+    runCode while_break_test; 
+    [%expect {| 
+                1.
+                2.
+                3.
+                4.
+            |}]
+;;
+
+
+(*  Test for for loop inside if else *)
+
+(*
+    v = 1.0;
+    if (v > 10.0) then
+        v = v + 1.0
+    else
+        for(i = 2.0; i < 10.0; i++) {
+            v = v * i
+        }
+    v   // display v
+*)
+let for_test: block = [
+    Assign("v", Num(1.0));
+    If(
+        Op2(">", Var("v"), Num(10.0)), 
+        [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
+        [For(
+            Assign("i", Num(2.0)),
+            Op2("<", Var("i"), Num(10.0)),
+            Expr(Op1("++", Var("i"))),
+            [
+                Assign("v", Op2("*", Var("v"), Var("i")))
+            ]
+        )];
+    );
+    Expr(Var("v"))
+];;
+
+
+let%expect_test "for_test" =
+    runCode for_test; 
+    [%expect {| 362880. |}]
+    ;;
+
+(*  Test for nested for loop with continue *)
+(* 
+    for(i = 0; i <= 10; ++i){
+        if(i == 0){
+            continue
+        }
+
+        sum = 0
+        for(j = i; j > 0; --j){
+            sum = sum + j
+        }
+        sum // print sum
+    }
+*)
+
+let for_nested_test: block = [
+        For(
+            Assign("i", Num(0.0)),
+            Op2("<=", Var("i"), Num(10.0)),
+            Assign("i", Op2("+", Var("i"), Num(1.0))),
+            [   
+                If
+                (   Op2("==", Var("i"), Num(0.0)),
+                    [Continue],
+                    []
+                );
+
+                Assign("sum", Num(0.0));
+
+                
+                For(
+                Assign("j", Var("i")),
+                Op2(">", Var("j"), Num(0.0)),
+                Assign("j", Op2("-", Var("j"), Num(1.0))),
+                [Assign("sum", Op2("+", Var("sum"), Var("j")))]
+                );
+
+                Expr(Var("sum"));
+            ]  
+        );
+];;
+
+
+let%expect_test "for_nested_test" =
+    runCode for_nested_test; 
+    [%expect {| 
+                1.
+                3.
+                6.
+                10.
+                15.
+                21.
+                28.
+                36.
+                45.
+                55.
+            |}]
+    ;;
+
