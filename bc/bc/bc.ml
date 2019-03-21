@@ -620,3 +620,56 @@ let%expect_test "for_nested_test" =
             |}]
     ;;
 
+
+
+(* Program Test 1*)
+(*
+    // reverse positive integer
+
+    rev(num){
+        res = 0;
+
+        while( num != 0){
+            res = res * 10 + num % 10
+            num = num % 10 
+        }
+
+        return res;
+    }
+
+
+*)
+
+
+let reverseInt : block = [
+    FctDef("reverseInt", 
+            ["num"],
+            [
+                Assign("res", Num(0.0));
+                While(
+                    Op2(">=", Var("num"), Num(1.0)),
+                    [
+                    Assign("res", Op2("+", Op2("*", Var("res"), Num(10.0)), Op2("%", Var("num"), Num(10.0))));
+                    Assign("num", Op2("/", Var("num"), Num(10.0)));
+                    ]
+                );
+                Return(Var("res"));
+            ]
+    );
+
+    Expr(Fct("reverseInt", [Num(1234.0)]));
+    Expr(Fct("reverseInt", [Num(123456789.0)]))
+];;
+
+let%expect_test "reverseInt" =
+    runCode reverseInt; 
+    [%expect {|
+                 4321.
+                 987654321.
+            |}]
+    ;;
+
+(* Program Test 3*)
+
+
+(* Program Test 4*)
