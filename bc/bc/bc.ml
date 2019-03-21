@@ -14,9 +14,6 @@ let localStack = Stack.create () ;;
 Stack.push Scope.empty localStack ;;
 Stack.push Scope.empty globalStack ;;
 
-(* regex for matching variable name and function name *)
-let var_regex = Str.regexp "[a-z]+[a-zA-Z0-9_*]" ;;
-
 type sExpr = 
     | Atom of string
     | List of sExpr list
@@ -258,7 +255,7 @@ and evalFunc (name : string) (args : expr list) (scopes : envQueue) : float =
                         flt
         
     else
-        raise (Error("Cannot find function name: " ^ name ^ "\n"));
+        raise (Error("Function: " ^ name ^ " does noe exist!"));
     ;;
 
 let runCode (code: block) : unit =
@@ -800,4 +797,49 @@ let%expect_test "hasDigit" =
                1.
                1. 
             |}]
+    ;;
+
+
+(* Test for error messages *)
+let error_op_test : block = [
+   Expr(Op2("#", Num(1.0), Num(1.0)));
+];;
+
+let%expect_test "error_op_test" =
+    runCode error_op_test; 
+    [%expect {| Invalid binary operator # |}]
+    ;;
+
+let error_var_test : block = [
+    Expr(Var("Test"));
+    FctDef("31321", 
+            [],
+            []
+    );
+];;
+
+let%expect_test "error_var_test" =
+    runCode error_var_test; 
+    [%expect {| Invalid variable name: Test |}]
+    ;;
+
+let error_func_test : block = [
+    FctDef("31321", 
+            [],
+            []
+    );
+];;
+
+let%expect_test "error_func_test" =
+    runCode error_func_test; 
+    [%expect {| Invalid function name: 31321 |}]
+    ;;
+
+let error_func_exist_test : block = [
+   Expr(Fct("dragon", []))
+];;
+
+let%expect_test "error_func_exist_test" =
+    runCode error_func_exist_test; 
+    [%expect {|  Function: dragon does noe exist! |}]
     ;;
